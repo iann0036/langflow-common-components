@@ -24,15 +24,16 @@ class SlackMessage(Component):
             name="message",
             display_name="Message",
             info="The message to send to Slack.",
+            required=True,
             tool_mode=True,
         ),
     ]
 
     outputs = [
-        Output(display_name="Status", name="output", method="send_message"),
+        Output(display_name="Status", name="output", method="send_slack_message"),
     ]
 
-    def send_message(self) -> Data:
+    def send_slack_message(self) -> Data:
         payload = {
             "text": self.message
         }
