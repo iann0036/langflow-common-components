@@ -49,6 +49,7 @@ from lfx.field_typing.constants import (
 
 # Mapping of type names to their actual type objects
 TYPE_MAP = {
+    "Any": Any, # Default
     "AgentExecutor": AgentExecutor,
     "BaseChatMemory": BaseChatMemory,
     "BaseChatMessageHistory": BaseChatMessageHistory,
@@ -184,7 +185,7 @@ class PassthroughDependency(Component):
     ]
 
     outputs = [
-        Output(display_name="Original Input", name="output", method="passthrough_input"),
+        Output(display_name="Original Input", name="output", method="passthrough_input_any"),
     ]
 
     def update_outputs(self, frontend_node: dict, field_name: str, field_value: Any) -> dict:
@@ -199,7 +200,7 @@ class PassthroughDependency(Component):
             ]
         return frontend_node
 
-    def passthrough_input(self) -> Any: # Default passthrough method
+    def passthrough_input_any(self) -> Any: # Default passthrough method
         return self.original_input
 
     def passthrough_input_agentexecutor(self) -> AgentExecutor:
