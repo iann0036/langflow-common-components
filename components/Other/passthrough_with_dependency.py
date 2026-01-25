@@ -102,7 +102,7 @@ TYPE_MAP = {
 
 class PassthroughDependency(Component):
     display_name = "Passthrough with dependency"
-    description = "Sends an input directly to the output only when all dependent ignored inputs are received."
+    description = "Sends an input directly to the output only when all dependent ignored inputs are received. Additional ignored inputs can be added from Controls."
     documentation: str = "https://github.com/iann0036/langflow-common-components"
     icon = "arrow-right" # https://lucide.dev/icons/
     name = "PassthroughDependency"
