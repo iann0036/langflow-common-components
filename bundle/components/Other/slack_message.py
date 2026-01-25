@@ -1,9 +1,12 @@
 # pyright: reportCallIssue=false
 import requests
 from typing import Any
-from lfx.custom.custom_component.component import Component
-from lfx.io import MessageTextInput, StrInput, Output
-from lfx.schema.data import Data
+#from lfx.custom.custom_component.component import Component
+#from lfx.io import MessageTextInput, StrInput, Output
+#from lfx.schema.data import Data
+from langflow.custom.custom_component.component import Component
+from langflow.io import MessageTextInput, StrInput, Output
+from langflow.schema.data import Data
 
 
 class SlackMessage(Component):
