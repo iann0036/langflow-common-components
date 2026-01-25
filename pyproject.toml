@@ -1,0 +1,10 @@
+[project]
+name = "langflow-common-components"
+version = "0.1.0"
+description = "Common components for LangFlow"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "lfx>=0.2.2",
+    "requests>=2.32.5",
+]
