@@ -1,12 +1,9 @@
 # pyright: reportCallIssue=false
 import requests
 from typing import Any
-#from lfx.custom.custom_component.component import Component
-#from lfx.io import MessageTextInput, StrInput, Output
-#from lfx.schema.data import Data
-from langflow.custom.custom_component.component import Component
-from langflow.io import MessageTextInput, StrInput, Output
-from langflow.schema.data import Data
+from lfx.custom.custom_component.component import Component
+from lfx.io import MessageTextInput, StrInput, Output
+from lfx.schema.data import Data
 
 
 class SlackMessage(Component):
@@ -32,16 +29,16 @@ class SlackMessage(Component):
     ]
 
     outputs = [
-        Output(display_name="Output", name="output", method="send_message"),
+        Output(display_name="Webhook Response", name="output", method="send_message"),
     ]
 
-    def send_message(self) -> Data:        
+    def send_message(self) -> Data:
         payload = {
             "text": self.message
         }
         
         response = requests.post(self.webhook_url, json=payload)
         response.raise_for_status()
-        data = Data(data={"status": "success", "response": response.json() if response.text else {}})
-        self.status = data
+        data = Data(data={"status": "success"})
+        self.status = "Sent Slack Message"
         return data
