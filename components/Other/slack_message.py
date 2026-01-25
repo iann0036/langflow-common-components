@@ -1,5 +1,6 @@
 # pyright: reportCallIssue=false
 import requests
+import json
 from typing import Any
 from lfx.custom.custom_component.component import Component
 from lfx.io import MessageTextInput, StrInput, Output
@@ -27,6 +28,12 @@ class SlackMessage(Component):
             required=True,
             tool_mode=True,
         ),
+        MessageTextInput(
+            name="blocks_data",
+            display_name="Blocks Data",
+            info="The blocks data to send alongside the message, as a JSON string.",
+            tool_mode=True,
+        ),
     ]
 
     outputs = [
@@ -37,6 +44,15 @@ class SlackMessage(Component):
         payload = {
             "text": self.message
         }
+
+        if self.blocks_data:
+            try:
+                blocks = json.loads(self.blocks_data.message)
+                if not isinstance(blocks, list):
+                    raise ValueError("Blocks data must be a JSON array.")
+                payload["blocks"] = blocks
+            except Exception as e:
+                raise ValueError(f"Invalid blocks data: {e}")
         
         response = requests.post(self.webhook_url, json=payload)
         response.raise_for_status()
