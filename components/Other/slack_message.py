@@ -29,7 +29,7 @@ class SlackMessage(Component):
     ]
 
     outputs = [
-        Output(display_name="Webhook Response", name="output", method="send_message"),
+        Output(display_name="Status", name="output", method="send_message"),
     ]
 
     def send_message(self) -> Data:
