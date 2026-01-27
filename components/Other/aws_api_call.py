@@ -60,7 +60,7 @@ class AWSAPICallComponent(Component):
             name="region_name",
             display_name="Region Name",
             value="us-east-1",
-            options=AWS_REGIONS.sort(),
+            options=AWS_REGIONS,
             info="The AWS region to execute the call in.",
         ),
         MessageTextInput(
