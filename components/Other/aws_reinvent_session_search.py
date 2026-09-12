@@ -23,7 +23,15 @@ class AWSReInventSessionSearch(Component):
         "eventcatalog/page/eventcatalog"
     )
     SESSIONS_API = "https://catalog.awsevents.com/api/sessions"
-    TOPIC_ATTRIBUTES = ("Topic", "Area of Interest", "Track", "Services", "Primary Topic")
+    SEARCH_API = "https://catalog.awsevents.com/api/search"
+    TOPIC_ATTRIBUTES = (
+        "Topic",
+        "Area of Interest",
+        "AreaofInterest",
+        "Track",
+        "Services",
+        "Primary Topic",
+    )
 
     inputs: list[Any] = [
         MessageTextInput(
@@ -135,22 +143,36 @@ class AWSReInventSessionSearch(Component):
     def _fetch_page(self, profile_headers: dict[str, str], offset: int, size: int) -> tuple[list[dict], int | None]:
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Origin": "https://registration.awsevents.com",
+            "Referer": "https://registration.awsevents.com/",
             **profile_headers,
         }
-        response = requests.post(
-            self.SESSIONS_API,
-            headers=headers,
-            data={
-                "type": "session",
-                "browserTimezone": self.browser_timezone or "America/Los_Angeles",
-                "catalogDisplay": "list",
-                "from": str(offset),
-                "size": str(size),
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        payload_data = {
+            "type": "session",
+            "browserTimezone": self.browser_timezone or "America/Los_Angeles",
+            "catalogDisplay": "list",
+            "from": str(offset),
+            "size": str(size),
+        }
+        payload = None
+
+        for api_url in (self.SESSIONS_API, self.SEARCH_API):
+            response = requests.post(
+                api_url,
+                headers=headers,
+                data=payload_data,
+                timeout=60,
+            )
+            if response.status_code == 404 and api_url == self.SESSIONS_API:
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("responseCode") in (None, "0", 0):
+                break
+
+        if payload is None:
+            msg = "Unexpected response from the AWS re:Invent catalog API."
+            raise ValueError(msg)
 
         if "sectionList" in payload and payload["sectionList"]:
             section = payload["sectionList"][0]
@@ -220,12 +242,17 @@ class AWSReInventSessionSearch(Component):
     @staticmethod
     def _speakers(item: dict) -> list[str]:
         speakers = []
-        for key in ("speakers", "speakerList"):
+        for key in ("speakers", "speakerList", "participants"):
             value = item.get(key)
             if isinstance(value, list):
                 for speaker in value:
                     if isinstance(speaker, dict):
-                        name = speaker.get("name") or speaker.get("fullName") or speaker.get("speakerName")
+                        name = (
+                            speaker.get("name")
+                            or speaker.get("fullName")
+                            or speaker.get("speakerName")
+                            or speaker.get("participantName")
+                        )
                         if name:
                             speakers.append(str(name))
                     elif speaker:
