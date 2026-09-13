@@ -18,11 +18,13 @@ class AWSReInventSessionSearch(Component):
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
 
-    CATALOG_PAGE_TEMPLATE = (
-        "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
+    CATALOG_PAGE = (
+        "https://registration.awsevents.com/flow/awsevents/reinvent2026/"
         "eventcatalog/page/eventcatalog"
     )
     SESSIONS_API = "https://catalog.awsevents.com/api/sessions"
+    RF_API_PROFILE_ID = "mSEPBdEOSHwzxJwd7H8MfSWVylSYQsS4"
+    RF_WIDGET_ID = "nbNFIlUhukEGI22KvPEwpPdWgK6FoPsi"
     TOPIC_ATTRIBUTES = (
         "Topic",
         "Area of Interest",
@@ -56,29 +58,10 @@ class AWSReInventSessionSearch(Component):
             advanced=True,
         ),
         StrInput(
-            name="event_identifier",
-            display_name="Event Identifier",
-            info="The AWS event identifier used in the registration catalog URL.",
-            value="reinvent2026",
-            advanced=True,
-        ),
-        StrInput(
             name="browser_timezone",
             display_name="Browser Timezone",
             info="Timezone sent to the catalog API when retrieving sessions.",
             value="America/Los_Angeles",
-            advanced=True,
-        ),
-        StrInput(
-            name="rfapiprofileid",
-            display_name="rfapiprofileid",
-            info="Optional profile header value. If omitted, the component will try to discover it automatically.",
-            advanced=True,
-        ),
-        StrInput(
-            name="rfwidgetid",
-            display_name="rfwidgetid",
-            info="Optional widget header value. If omitted, the component will try to discover it automatically.",
             advanced=True,
         ),
     ]
@@ -87,73 +70,11 @@ class AWSReInventSessionSearch(Component):
         Output(display_name="Sessions", name="output", method="search_sessions"),
     ]
 
-    def _catalog_page_url(self) -> str:
-        event_identifier = str(self.event_identifier or "reinvent2026").strip()
-        return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
-
     def _discover_profile_headers(self) -> dict[str, str]:
-        profile = {
-            key: value
-            for key, value in {
-                "rfapiprofileid": self.rfapiprofileid,
-                "rfwidgetid": self.rfwidgetid,
-            }.items()
-            if value
+        return {
+            "rfapiprofileid": self.RF_API_PROFILE_ID,
+            "rfwidgetid": self.RF_WIDGET_ID,
         }
-        if len(profile) == 2:
-            return profile
-
-        try:
-            from playwright.sync_api import Error as PlaywrightError
-            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-            from playwright.sync_api import sync_playwright
-        except ImportError as e:
-            msg = (
-                "Playwright is required to auto-discover the AWS catalog headers. "
-                "Install it with `pip install playwright && playwright install chromium`, "
-                "or provide both rfapiprofileid and rfwidgetid manually."
-            )
-            raise ImportError(msg) from e
-
-        last_error: str | None = None
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            page = browser.new_page()
-
-            def on_request(request: Any) -> None:
-                if self.SESSIONS_API not in request.url or profile:
-                    return
-                for key, value in request.headers.items():
-                    lowered = key.lower()
-                    if lowered in ("rfapiprofileid", "rfwidgetid"):
-                        profile[lowered] = value
-
-            page.on("request", on_request)
-            try:
-                if len(profile) < 2:
-                    try:
-                        with page.expect_request(
-                            lambda request: self.SESSIONS_API in request.url, timeout=30000
-                        ) as request_info:
-                            page.goto(self._catalog_page_url(), wait_until="domcontentloaded", timeout=60000)
-                        for key, value in request_info.value.headers.items():
-                            lowered = key.lower()
-                            if lowered in ("rfapiprofileid", "rfwidgetid"):
-                                profile[lowered] = value
-                    except (PlaywrightTimeoutError, PlaywrightError) as e:
-                        last_error = str(e)
-                else:
-                    page.goto(self._catalog_page_url(), wait_until="domcontentloaded", timeout=60000)
-            finally:
-                browser.close()
-
-        if len(profile) < 2:
-            msg = "Could not discover the AWS catalog API profile headers."
-            if last_error:
-                msg = f"{msg} Playwright reported: {last_error}"
-            raise RuntimeError(msg)
-
-        return profile
 
     def _fetch_page(self, profile_headers: dict[str, str], offset: int, size: int) -> tuple[list[dict], int | None]:
         headers = {
@@ -221,6 +142,7 @@ class AWSReInventSessionSearch(Component):
             if not items:
                 break
 
+            page_matches: list[dict[str, Any]] = []
             for item in items:
                 session_id = str(
                     item.get("code")
@@ -236,11 +158,13 @@ class AWSReInventSessionSearch(Component):
                 scanned_sessions += 1
                 score = self._match_score(item, query)
                 if score > 0:
-                    matches.append(self._session_details(item, score))
-                    self._sort_matches(matches)
-                    if len(matches) > max_results:
-                        del matches[max_results:]
+                    page_matches.append(self._session_details(item, score))
 
+            if page_matches:
+                matches.extend(page_matches)
+                self._sort_matches(matches)
+                if len(matches) > max_results:
+                    del matches[max_results:]
             offset += page_size
             if matches and len(matches) >= max_results:
                 if all(self._is_high_confidence_match(item, query) for item in matches):
@@ -357,7 +281,7 @@ class AWSReInventSessionSearch(Component):
             "topic": self._topic(attributes),
             "speakers": self._speakers(item),
             "attributes": attributes,
-            "catalog_page": self._catalog_page_url(),
+            "catalog_page": self.CATALOG_PAGE,
             "match_score": match_score,
         }
 
