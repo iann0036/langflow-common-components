@@ -89,6 +89,8 @@ class AWSReInventSessionSearch(Component):
             }
 
         try:
+            from playwright.sync_api import Error as PlaywrightError
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
             from playwright.sync_api import sync_playwright
         except ImportError as e:
             msg = (
@@ -99,6 +101,7 @@ class AWSReInventSessionSearch(Component):
             raise ImportError(msg) from e
 
         profile: dict[str, str] = {}
+        last_error: str | None = None
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page()
@@ -129,13 +132,15 @@ class AWSReInventSessionSearch(Component):
                             lowered = key.lower()
                             if lowered in ("rfapiprofileid", "rfwidgetid"):
                                 profile[lowered] = value
-                    except Exception:
-                        pass
+                    except (PlaywrightTimeoutError, PlaywrightError) as e:
+                        last_error = str(e)
             finally:
                 browser.close()
 
         if len(profile) < 2:
             msg = "Could not discover the AWS catalog API profile headers."
+            if last_error:
+                msg = f"{msg} Playwright reported: {last_error}"
             raise RuntimeError(msg)
 
         return profile
@@ -182,14 +187,24 @@ class AWSReInventSessionSearch(Component):
         msg = "Unexpected response from the AWS re:Invent catalog API."
         raise ValueError(msg)
 
-    def _load_catalog_sessions(self) -> list[dict]:
+    def _is_high_confidence_match(self, item: dict, query: str) -> bool:
+        normalized_query = self._normalize(query)
+        if not normalized_query:
+            return False
+
+        code = self._normalize(item.get("code") or item.get("abbreviation") or item.get("sessionID") or "")
+        title = self._normalize(item.get("title") or "")
+        return code == normalized_query or title == normalized_query or normalized_query in title
+
+    def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
         profile_headers = self._discover_profile_headers()
 
-        sessions: list[dict] = []
+        matches: list[dict] = []
         seen_ids: set[str] = set()
         offset = 0
         total: int | None = None
+        scanned_sessions = 0
 
         while True:
             items, total = self._fetch_page(profile_headers, offset, page_size)
@@ -208,13 +223,21 @@ class AWSReInventSessionSearch(Component):
                     continue
                 if session_id:
                     seen_ids.add(session_id)
-                sessions.append(item)
+                scanned_sessions += 1
+                score = self._match_score(item, query)
+                if score > 0:
+                    matches.append(self._session_details(item, score))
 
             offset += page_size
+            matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
+            top_matches = matches[:max_results]
+            if top_matches and len(top_matches) >= max_results:
+                if all(self._is_high_confidence_match(item, query) for item in top_matches):
+                    return top_matches, scanned_sessions
             if total is not None and offset >= total:
                 break
 
-        return sessions
+        return matches[:max_results], scanned_sessions
 
     @staticmethod
     def _normalize(value: Any) -> str:
@@ -334,20 +357,12 @@ class AWSReInventSessionSearch(Component):
             raise ValueError(msg)
 
         max_results = max(1, int(self.max_results or 5))
-        sessions = self._load_catalog_sessions()
-
-        matches = [
-            self._session_details(item, score)
-            for item in sessions
-            if (score := self._match_score(item, query)) > 0
-        ]
-        matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
-        matches = matches[:max_results]
+        matches, scanned_sessions = self._search_catalog_sessions(query, max_results)
 
         result = {
             "query": query,
             "match_count": len(matches),
-            "scanned_sessions": len(sessions),
+            "scanned_sessions": scanned_sessions,
             "sessions": matches,
         }
         self.status = f"Found {len(matches)} AWS re:Invent session matches"
