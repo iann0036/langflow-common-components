@@ -12,9 +12,11 @@ from lfx.schema.data import Data
 
 
 class AWSReInventSessionSearch(Component):
+    """Search the public AWS re:Invent catalog and return structured session matches."""
+
     display_name = "AWS re:Invent Session Search"
     description = "Searches the public AWS re:Invent catalog and returns details for matching sessions."
-    documentation: str = "https://github.com/iann0036/langflow-common-components"
+    documentation: str = "https://registration.awsevents.com/flow/awsevents/reinvent2026/eventcatalog/page/eventcatalog"
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
 
@@ -82,7 +84,7 @@ class AWSReInventSessionSearch(Component):
         event_identifier = str(self.event_identifier or "reinvent2026").strip()
         return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
 
-    def _discover_profile_headers(self) -> dict[str, str]:
+    def _static_profile_headers(self) -> dict[str, str]:
         return {
             "rfapiprofileid": self.RF_API_PROFILE_ID,
             "rfwidgetid": self.RF_WIDGET_ID,
@@ -131,21 +133,9 @@ class AWSReInventSessionSearch(Component):
     def _sort_matches(matches: list[dict[str, Any]]) -> None:
         matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
 
-    def _can_stop_early(self, query: str, matches: list[dict[str, Any]], max_results: int) -> bool:
-        if not matches:
-            return False
-
-        normalized_query = self._normalize(query)
-        top_match = matches[0]
-        if self._normalize(top_match.get("code") or "") == normalized_query:
-            return True
-        if max_results == 1 and self._normalize(top_match.get("title") or "") == normalized_query:
-            return True
-        return False
-
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
-        profile_headers = self._discover_profile_headers()
+        profile_headers = self._static_profile_headers()
 
         matches: list[dict] = []
         seen_ids: set[str] = set()
@@ -182,8 +172,6 @@ class AWSReInventSessionSearch(Component):
                 if len(matches) > max_results:
                     del matches[max_results:]
             offset += page_size
-            if self._can_stop_early(query, matches, max_results):
-                return matches, scanned_sessions
             if total is not None and offset >= total:
                 break
 
