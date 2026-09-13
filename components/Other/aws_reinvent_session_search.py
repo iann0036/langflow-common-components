@@ -154,25 +154,24 @@ class AWSReInventSessionSearch(Component):
             "from": str(offset),
             "size": str(size),
         }
-        payload = None
-
-        for api_url in (self.SESSIONS_API, self.SEARCH_API):
+        response = requests.post(
+            self.SESSIONS_API,
+            headers=headers,
+            data=payload_data,
+            timeout=60,
+        )
+        if response.status_code == 404:
             response = requests.post(
-                api_url,
+                self.SEARCH_API,
                 headers=headers,
                 data=payload_data,
                 timeout=60,
             )
-            if response.status_code == 404 and api_url == self.SESSIONS_API:
-                continue
-            response.raise_for_status()
-            payload = response.json()
-            if payload.get("responseCode") in (None, "0", 0):
-                break
-
-        if payload is None:
-            msg = "Unexpected response from the AWS re:Invent catalog API."
-            raise ValueError(msg)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("responseCode") not in (None, "0", 0):
+            msg = f"AWS re:Invent catalog API returned responseCode={payload.get('responseCode')}."
+            raise RuntimeError(msg)
 
         if "sectionList" in payload and payload["sectionList"]:
             section = payload["sectionList"][0]

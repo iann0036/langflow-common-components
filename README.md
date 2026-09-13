@@ -12,3 +12,9 @@ To use these components in your Langflow setup, add the following environment va
 LANGFLOW_BUNDLE_URLS="https://github.com/iann0036/langflow-common-components"
 ```
 
+If you want to use the AWS re:Invent Session Search component without manually supplying `rfapiprofileid` and `rfwidgetid`, also install Playwright and its Chromium browser:
+
+```bash
+pip install playwright
+playwright install chromium
+```
