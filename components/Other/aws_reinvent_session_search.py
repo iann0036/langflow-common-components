@@ -114,15 +114,6 @@ class AWSReInventSessionSearch(Component):
         msg = "Unexpected response from the AWS re:Invent catalog API."
         raise ValueError(msg)
 
-    def _is_high_confidence_match(self, item: dict, query: str) -> bool:
-        normalized_query = self._normalize(query)
-        if not normalized_query:
-            return False
-
-        code = self._normalize(item.get("code") or item.get("abbreviation") or item.get("sessionID") or "")
-        title = self._normalize(item.get("title") or "")
-        return code == normalized_query or title == normalized_query or normalized_query in title
-
     @staticmethod
     def _sort_matches(matches: list[dict[str, Any]]) -> None:
         matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
@@ -166,9 +157,6 @@ class AWSReInventSessionSearch(Component):
                 if len(matches) > max_results:
                     del matches[max_results:]
             offset += page_size
-            if matches and len(matches) >= max_results:
-                if all(self._is_high_confidence_match(item, query) for item in matches):
-                    return matches, scanned_sessions
             if total is not None and offset >= total:
                 break
 
@@ -199,21 +187,26 @@ class AWSReInventSessionSearch(Component):
     @staticmethod
     def _speakers(item: dict) -> list[str]:
         speakers = []
+        seen_speakers: set[str] = set()
         for key in ("speakers", "speakerList", "participants"):
             value = item.get(key)
             if isinstance(value, list):
                 for speaker in value:
+                    name = None
                     if isinstance(speaker, dict):
-                        name = (
+                        name = str(
                             speaker.get("name")
                             or speaker.get("fullName")
                             or speaker.get("speakerName")
                             or speaker.get("participantName")
                         )
-                        if name:
-                            speakers.append(str(name))
                     elif speaker:
-                        speakers.append(str(speaker))
+                        name = str(speaker)
+
+                    normalized_name = name.strip() if name else ""
+                    if normalized_name and normalized_name not in seen_speakers:
+                        seen_speakers.add(normalized_name)
+                        speakers.append(normalized_name)
         return speakers
 
     def _match_score(self, item: dict, query: str) -> int:
