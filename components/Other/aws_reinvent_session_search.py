@@ -18,12 +18,11 @@ class AWSReInventSessionSearch(Component):
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
 
-    CATALOG_PAGE = (
-        "https://registration.awsevents.com/flow/awsevents/reinvent2026/"
+    CATALOG_PAGE_TEMPLATE = (
+        "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
         "eventcatalog/page/eventcatalog"
     )
     SESSIONS_API = "https://catalog.awsevents.com/api/sessions"
-    SEARCH_API = "https://catalog.awsevents.com/api/search"
     TOPIC_ATTRIBUTES = (
         "Topic",
         "Area of Interest",
@@ -57,6 +56,13 @@ class AWSReInventSessionSearch(Component):
             advanced=True,
         ),
         StrInput(
+            name="event_identifier",
+            display_name="Event Identifier",
+            info="The AWS event identifier used in the registration catalog URL.",
+            value="reinvent2026",
+            advanced=True,
+        ),
+        StrInput(
             name="browser_timezone",
             display_name="Browser Timezone",
             info="Timezone sent to the catalog API when retrieving sessions.",
@@ -80,6 +86,10 @@ class AWSReInventSessionSearch(Component):
     outputs = [
         Output(display_name="Sessions", name="output", method="search_sessions"),
     ]
+
+    def _catalog_page_url(self) -> str:
+        event_identifier = str(self.event_identifier or "reinvent2026").strip()
+        return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
 
     def _discover_profile_headers(self) -> dict[str, str]:
         profile = {
@@ -125,7 +135,7 @@ class AWSReInventSessionSearch(Component):
                         with page.expect_request(
                             lambda request: self.SESSIONS_API in request.url, timeout=30000
                         ) as request_info:
-                            page.goto(self.CATALOG_PAGE, wait_until="domcontentloaded", timeout=60000)
+                            page.goto(self._catalog_page_url(), wait_until="domcontentloaded", timeout=60000)
                         for key, value in request_info.value.headers.items():
                             lowered = key.lower()
                             if lowered in ("rfapiprofileid", "rfwidgetid"):
@@ -133,7 +143,7 @@ class AWSReInventSessionSearch(Component):
                     except (PlaywrightTimeoutError, PlaywrightError) as e:
                         last_error = str(e)
                 else:
-                    page.goto(self.CATALOG_PAGE, wait_until="domcontentloaded", timeout=60000)
+                    page.goto(self._catalog_page_url(), wait_until="domcontentloaded", timeout=60000)
             finally:
                 browser.close()
 
@@ -166,12 +176,8 @@ class AWSReInventSessionSearch(Component):
             timeout=60,
         )
         if response.status_code == 404:
-            response = requests.post(
-                self.SEARCH_API,
-                headers=headers,
-                data=payload_data,
-                timeout=60,
-            )
+            msg = "AWS re:Invent catalog sessions API was not available."
+            raise RuntimeError(msg)
         response.raise_for_status()
         payload = response.json()
         if payload.get("responseCode") not in (None, "0", 0):
@@ -351,7 +357,7 @@ class AWSReInventSessionSearch(Component):
             "topic": self._topic(attributes),
             "speakers": self._speakers(item),
             "attributes": attributes,
-            "catalog_page": self.CATALOG_PAGE,
+            "catalog_page": self._catalog_page_url(),
             "match_score": match_score,
         }
 
