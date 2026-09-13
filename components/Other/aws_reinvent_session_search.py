@@ -82,11 +82,16 @@ class AWSReInventSessionSearch(Component):
     ]
 
     def _discover_profile_headers(self) -> dict[str, str]:
-        if self.rfapiprofileid and self.rfwidgetid:
-            return {
+        profile = {
+            key: value
+            for key, value in {
                 "rfapiprofileid": self.rfapiprofileid,
                 "rfwidgetid": self.rfwidgetid,
-            }
+            }.items()
+            if value
+        }
+        if len(profile) == 2:
+            return profile
 
         try:
             from playwright.sync_api import Error as PlaywrightError
@@ -100,7 +105,6 @@ class AWSReInventSessionSearch(Component):
             )
             raise ImportError(msg) from e
 
-        profile: dict[str, str] = {}
         last_error: str | None = None
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
@@ -116,24 +120,20 @@ class AWSReInventSessionSearch(Component):
 
             page.on("request", on_request)
             try:
-                page.goto(self.CATALOG_PAGE, wait_until="domcontentloaded", timeout=60000)
-                for _ in range(30):
-                    if len(profile) == 2:
-                        break
-                    page.wait_for_timeout(1000)
-
                 if len(profile) < 2:
                     try:
                         with page.expect_request(
                             lambda request: self.SESSIONS_API in request.url, timeout=30000
                         ) as request_info:
-                            page.reload(wait_until="domcontentloaded")
+                            page.goto(self.CATALOG_PAGE, wait_until="domcontentloaded", timeout=60000)
                         for key, value in request_info.value.headers.items():
                             lowered = key.lower()
                             if lowered in ("rfapiprofileid", "rfwidgetid"):
                                 profile[lowered] = value
                     except (PlaywrightTimeoutError, PlaywrightError) as e:
                         last_error = str(e)
+                else:
+                    page.goto(self.CATALOG_PAGE, wait_until="domcontentloaded", timeout=60000)
             finally:
                 browser.close()
 
@@ -196,6 +196,10 @@ class AWSReInventSessionSearch(Component):
         title = self._normalize(item.get("title") or "")
         return code == normalized_query or title == normalized_query or normalized_query in title
 
+    @staticmethod
+    def _sort_matches(matches: list[dict[str, Any]]) -> None:
+        matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
+
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
         profile_headers = self._discover_profile_headers()
@@ -227,17 +231,18 @@ class AWSReInventSessionSearch(Component):
                 score = self._match_score(item, query)
                 if score > 0:
                     matches.append(self._session_details(item, score))
+                    self._sort_matches(matches)
+                    if len(matches) > max_results:
+                        del matches[max_results:]
 
             offset += page_size
-            matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
-            top_matches = matches[:max_results]
-            if top_matches and len(top_matches) >= max_results:
-                if all(self._is_high_confidence_match(item, query) for item in top_matches):
-                    return top_matches, scanned_sessions
+            if matches and len(matches) >= max_results:
+                if all(self._is_high_confidence_match(item, query) for item in matches):
+                    return matches, scanned_sessions
             if total is not None and offset >= total:
                 break
 
-        return matches[:max_results], scanned_sessions
+        return matches, scanned_sessions
 
     @staticmethod
     def _normalize(value: Any) -> str:
