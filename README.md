@@ -11,4 +11,3 @@ To use these components in your Langflow setup, add the following environment va
 ```bash
 LANGFLOW_BUNDLE_URLS="https://github.com/iann0036/langflow-common-components"
 ```
-
