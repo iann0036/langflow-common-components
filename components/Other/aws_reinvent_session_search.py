@@ -18,13 +18,14 @@ class AWSReInventSessionSearch(Component):
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
 
-    CATALOG_PAGE = (
-        "https://registration.awsevents.com/flow/awsevents/reinvent2026/"
+    CATALOG_PAGE_TEMPLATE = (
+        "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
         "eventcatalog/page/eventcatalog"
     )
     SESSIONS_API = "https://catalog.awsevents.com/api/sessions"
     RF_API_PROFILE_ID = "mSEPBdEOSHwzxJwd7H8MfSWVylSYQsS4"
     RF_WIDGET_ID = "nbNFIlUhukEGI22KvPEwpPdWgK6FoPsi"
+    USER_AGENT = "langflow-common-components/aws-reinvent-session-search"
     TOPIC_ATTRIBUTES = (
         "Topic",
         "Area of Interest",
@@ -58,6 +59,13 @@ class AWSReInventSessionSearch(Component):
             advanced=True,
         ),
         StrInput(
+            name="event_identifier",
+            display_name="Event Identifier",
+            info="The AWS event identifier used in the catalog page path.",
+            value="reinvent2026",
+            advanced=True,
+        ),
+        StrInput(
             name="browser_timezone",
             display_name="Browser Timezone",
             info="Timezone sent to the catalog API when retrieving sessions.",
@@ -70,6 +78,10 @@ class AWSReInventSessionSearch(Component):
         Output(display_name="Sessions", name="output", method="search_sessions"),
     ]
 
+    def _catalog_page_url(self) -> str:
+        event_identifier = str(self.event_identifier or "reinvent2026").strip()
+        return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
+
     def _discover_profile_headers(self) -> dict[str, str]:
         return {
             "rfapiprofileid": self.RF_API_PROFILE_ID,
@@ -80,7 +92,8 @@ class AWSReInventSessionSearch(Component):
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "Origin": "https://registration.awsevents.com",
-            "Referer": "https://registration.awsevents.com/",
+            "Referer": self._catalog_page_url(),
+            "User-Agent": self.USER_AGENT,
             **profile_headers,
         }
         payload_data = {
@@ -117,6 +130,18 @@ class AWSReInventSessionSearch(Component):
     @staticmethod
     def _sort_matches(matches: list[dict[str, Any]]) -> None:
         matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
+
+    def _can_stop_early(self, query: str, matches: list[dict[str, Any]], max_results: int) -> bool:
+        if not matches:
+            return False
+
+        normalized_query = self._normalize(query)
+        top_match = matches[0]
+        if self._normalize(top_match.get("code") or "") == normalized_query:
+            return True
+        if max_results == 1 and self._normalize(top_match.get("title") or "") == normalized_query:
+            return True
+        return False
 
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
@@ -157,6 +182,8 @@ class AWSReInventSessionSearch(Component):
                 if len(matches) > max_results:
                     del matches[max_results:]
             offset += page_size
+            if self._can_stop_early(query, matches, max_results):
+                return matches, scanned_sessions
             if total is not None and offset >= total:
                 break
 
@@ -274,7 +301,7 @@ class AWSReInventSessionSearch(Component):
             "topic": self._topic(attributes),
             "speakers": self._speakers(item),
             "attributes": attributes,
-            "catalog_page": self.CATALOG_PAGE,
+            "catalog_page": self._catalog_page_url(),
             "match_score": match_score,
         }
 
