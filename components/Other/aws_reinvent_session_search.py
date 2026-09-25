@@ -137,7 +137,10 @@ class AWSReInventSessionSearch(Component):
         )
         if response.status_code in (401, 403):
             env_var_name = self._auth_token_env_var_name()
-            msg = f"AWS re:Invent 2026 authentication failed. Check the auth token environment variable '{env_var_name}'."
+            msg = (
+                f"AWS re:Invent 2026 authentication failed. Check that the auth token environment variable "
+                f"'{env_var_name}' is set and contains a valid, unexpired Authorization header value or bearer token."
+            )
             raise RuntimeError(msg)
         if response.status_code == 404:
             msg = "AWS Events API sessions endpoint was not available for this event."
