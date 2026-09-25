@@ -118,7 +118,7 @@ class AWSReInventSessionSearch(Component):
                 return list(payload.get("items", []) or []), payload.get("nextToken")
             if "sectionList" in payload and payload["sectionList"]:
                 section = payload["sectionList"][0]
-                return list(section.get("items", []) or []), payload.get("nextToken")
+                return list(section.get("items", []) or []), section.get("nextToken") or payload.get("nextToken")
 
         msg = "Unexpected response from the AWS Events API."
         raise ValueError(msg)
