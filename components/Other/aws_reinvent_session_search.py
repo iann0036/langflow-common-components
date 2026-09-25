@@ -8,18 +8,19 @@ from urllib.parse import quote
 
 import requests
 from lfx.custom.custom_component.component import Component
-from lfx.io import IntInput, MessageTextInput, Output, StrInput
+from lfx.io import IntInput, MessageTextInput, Output, SecretStrInput, StrInput
 from lfx.schema.data import Data
 
 
 class AWSReInventSessionSearch(Component):
-    """Search the public AWS re:Invent catalog and return structured session matches."""
+    """Search the authenticated AWS re:Invent 2026 catalog and return structured session matches."""
 
     display_name = "AWS re:Invent Session Search"
-    description = "Searches the public AWS re:Invent catalog and returns details for matching sessions."
+    description = "Searches the authenticated AWS re:Invent 2026 catalog and returns details for matching sessions."
     documentation: str = "https://docs.aws.amazon.com/events/latest/devguide/rest-api.html"
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
+    EVENT_IDENTIFIER = "reinvent2026"
 
     CATALOG_PAGE_TEMPLATE = (
         "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
@@ -59,12 +60,20 @@ class AWSReInventSessionSearch(Component):
             value=100,
             advanced=True,
         ),
-        StrInput(
-            name="event_identifier",
-            display_name="Event Identifier",
-            info="The AWS event identifier used by the AWS Events API.",
-            value="reinvent2026",
+        SecretStrInput(
+            name="authorization_token",
+            display_name="Authorization Token",
+            info="Authentication token for AWS re:Invent 2026. Provide a full Authorization header value or a raw bearer token.",
+            required=False,
+            tool_mode=True,
+        ),
+        SecretStrInput(
+            name="session_cookie",
+            display_name="Session Cookie",
+            info="Optional authenticated Cookie header value for AWS re:Invent 2026 requests.",
+            required=False,
             advanced=True,
+            tool_mode=True,
         ),
         StrInput(
             name="browser_timezone",
@@ -80,17 +89,41 @@ class AWSReInventSessionSearch(Component):
     ]
 
     def _catalog_page_url(self) -> str:
-        event_identifier = quote(str(self.event_identifier or "reinvent2026").strip(), safe="")
-        return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
+        return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=self._event_identifier())
 
     def _sessions_api_url(self) -> str:
-        event_identifier = quote(str(self.event_identifier or "reinvent2026").strip(), safe="")
-        return self.SESSIONS_API_TEMPLATE.format(event_identifier=event_identifier)
+        return self.SESSIONS_API_TEMPLATE.format(event_identifier=self._event_identifier())
+
+    def _event_identifier(self) -> str:
+        return quote(self.EVENT_IDENTIFIER, safe="")
+
+    @staticmethod
+    def _input_value(value: Any) -> str:
+        return str(value or "").strip()
+
+    def _auth_headers(self) -> dict[str, str]:
+        authorization_token = self._input_value(self.authorization_token)
+        session_cookie = self._input_value(self.session_cookie)
+        if not authorization_token and not session_cookie:
+            msg = "AWS re:Invent 2026 requires authentication. Provide an Authorization Token or Session Cookie."
+            raise ValueError(msg)
+
+        headers: dict[str, str] = {}
+        if authorization_token:
+            if " " in authorization_token:
+                headers["Authorization"] = authorization_token
+            else:
+                bearer_prefix = "Bearer "
+                headers["Authorization"] = bearer_prefix + authorization_token
+        if session_cookie:
+            headers["Cookie"] = session_cookie
+        return headers
 
     def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
         headers = {
             "Accept": "application/json",
             "User-Agent": self.USER_AGENT,
+            **self._auth_headers(),
         }
         params = {
             "pageSize": size,
@@ -104,6 +137,9 @@ class AWSReInventSessionSearch(Component):
             params=params,
             timeout=60,
         )
+        if response.status_code in (401, 403):
+            msg = "AWS re:Invent 2026 authentication failed. Check the Authorization Token or Session Cookie."
+            raise RuntimeError(msg)
         if response.status_code == 404:
             msg = "AWS Events API sessions endpoint was not available for this event."
             raise RuntimeError(msg)
