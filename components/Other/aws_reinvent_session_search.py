@@ -16,7 +16,7 @@ class AWSReInventSessionSearch(Component):
 
     display_name = "AWS re:Invent Session Search"
     description = "Searches the public AWS re:Invent catalog and returns details for matching sessions."
-    documentation: str = "https://registration.awsevents.com/flow/awsevents/reinvent2026/eventcatalog/page/eventcatalog"
+    documentation: str = "https://docs.aws.amazon.com/events/latest/devguide/rest-api.html"
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
 
@@ -24,9 +24,7 @@ class AWSReInventSessionSearch(Component):
         "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
         "eventcatalog/page/eventcatalog"
     )
-    SESSIONS_API = "https://catalog.awsevents.com/api/sessions"
-    RF_API_PROFILE_ID = "mSEPBdEOSHwzxJwd7H8MfSWVylSYQsS4"
-    RF_WIDGET_ID = "nbNFIlUhukEGI22KvPEwpPdWgK6FoPsi"
+    SESSIONS_API_TEMPLATE = "https://events-api.aws/v1/events/{event_identifier}/sessions"
     USER_AGENT = "langflow-common-components/aws-reinvent-session-search"
     TOPIC_ATTRIBUTES = (
         "Topic",
@@ -63,14 +61,14 @@ class AWSReInventSessionSearch(Component):
         StrInput(
             name="event_identifier",
             display_name="Event Identifier",
-            info="The AWS event identifier used in the catalog page path.",
+            info="The AWS event identifier used by the AWS Events API.",
             value="reinvent2026",
             advanced=True,
         ),
         StrInput(
             name="browser_timezone",
             display_name="Browser Timezone",
-            info="Timezone sent to the catalog API when retrieving sessions.",
+            info="Legacy setting retained for compatibility; the official AWS Events API does not use it.",
             value="America/Los_Angeles",
             advanced=True,
         ),
@@ -84,49 +82,45 @@ class AWSReInventSessionSearch(Component):
         event_identifier = str(self.event_identifier or "reinvent2026").strip()
         return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
 
-    def _static_profile_headers(self) -> dict[str, str]:
-        return {
-            "rfapiprofileid": self.RF_API_PROFILE_ID,
-            "rfwidgetid": self.RF_WIDGET_ID,
-        }
+    def _sessions_api_url(self) -> str:
+        event_identifier = str(self.event_identifier or "reinvent2026").strip()
+        return self.SESSIONS_API_TEMPLATE.format(event_identifier=event_identifier)
 
-    def _fetch_page(self, profile_headers: dict[str, str], offset: int, size: int) -> tuple[list[dict], int | None]:
+    def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
         headers = {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Origin": "https://registration.awsevents.com",
-            "Referer": self._catalog_page_url(),
+            "Accept": "application/json",
             "User-Agent": self.USER_AGENT,
-            **profile_headers,
         }
-        payload_data = {
-            "type": "session",
-            "browserTimezone": self.browser_timezone or "America/Los_Angeles",
-            "catalogDisplay": "list",
-            "from": str(offset),
-            "size": str(size),
+        params = {
+            "pageSize": str(size),
         }
-        response = requests.post(
-            self.SESSIONS_API,
+        if next_token:
+            params["nextToken"] = next_token
+
+        response = requests.get(
+            self._sessions_api_url(),
             headers=headers,
-            data=payload_data,
+            params=params,
             timeout=60,
         )
         if response.status_code == 404:
-            msg = "AWS re:Invent catalog sessions API was not available."
+            msg = "AWS Events API sessions endpoint was not available for this event."
             raise RuntimeError(msg)
         response.raise_for_status()
         payload = response.json()
-        if payload.get("responseCode") not in (None, "0", 0):
-            msg = f"AWS re:Invent catalog API returned responseCode={payload.get('responseCode')}."
-            raise RuntimeError(msg)
 
-        if "sectionList" in payload and payload["sectionList"]:
-            section = payload["sectionList"][0]
-            return list(section.get("items", []) or []), section.get("total")
-        if "items" in payload:
-            return list(payload.get("items", []) or []), payload.get("total")
+        if isinstance(payload, list):
+            return list(payload), None
+        if isinstance(payload, dict):
+            if "sessions" in payload:
+                return list(payload.get("sessions", []) or []), payload.get("nextToken")
+            if "items" in payload:
+                return list(payload.get("items", []) or []), payload.get("nextToken")
+            if "sectionList" in payload and payload["sectionList"]:
+                section = payload["sectionList"][0]
+                return list(section.get("items", []) or []), payload.get("nextToken")
 
-        msg = "Unexpected response from the AWS re:Invent catalog API."
+        msg = "Unexpected response from the AWS Events API."
         raise ValueError(msg)
 
     @staticmethod
@@ -135,16 +129,14 @@ class AWSReInventSessionSearch(Component):
 
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
-        profile_headers = self._static_profile_headers()
 
         matches: list[dict] = []
         seen_ids: set[str] = set()
-        offset = 0
-        total: int | None = None
+        next_token: str | None = None
         scanned_sessions = 0
 
         while True:
-            items, total = self._fetch_page(profile_headers, offset, page_size)
+            items, next_token = self._fetch_page(next_token, page_size)
             if not items:
                 break
 
@@ -152,7 +144,9 @@ class AWSReInventSessionSearch(Component):
             for item in items:
                 session_id = str(
                     item.get("code")
+                    or item.get("sessionCode")
                     or item.get("abbreviation")
+                    or item.get("sessionId")
                     or item.get("sessionID")
                     or item.get("id")
                     or ""
@@ -171,8 +165,7 @@ class AWSReInventSessionSearch(Component):
                 self._sort_matches(matches)
                 if len(matches) > max_results:
                     del matches[max_results:]
-            offset += page_size
-            if total is not None and offset >= total:
+            if not next_token:
                 break
 
         return matches, scanned_sessions
@@ -182,6 +175,27 @@ class AWSReInventSessionSearch(Component):
         return re.sub(r"\s+", " ", str(value or "").strip()).lower()
 
     @staticmethod
+    def _string_values(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            return [stripped] if stripped else []
+        if isinstance(value, dict):
+            for key in ("name", "title", "label", "value", "displayName"):
+                nested_value = value.get(key)
+                if nested_value:
+                    return AWSReInventSessionSearch._string_values(nested_value)
+            return []
+        if isinstance(value, list):
+            values: list[str] = []
+            for item in value:
+                values.extend(AWSReInventSessionSearch._string_values(item))
+            return values
+        stripped = str(value).strip()
+        return [stripped] if stripped else []
+
+    @staticmethod
     def _attribute_map(item: dict) -> dict[str, list[str]]:
         attributes: dict[str, list[str]] = {}
         for attribute in item.get("attributevalues", []) or []:
@@ -189,6 +203,22 @@ class AWSReInventSessionSearch(Component):
             value = str(attribute.get("value") or "").strip()
             if name and value:
                 attributes.setdefault(name, []).append(value)
+
+        field_mappings = {
+            "Type": ("type", "sessionType"),
+            "Level": ("level", "sessionLevel"),
+            "Topic": ("topic", "topics", "categories", "tracks", "services", "primaryTopic"),
+        }
+        for attribute_name, field_names in field_mappings.items():
+            collected_values: list[str] = []
+            for field_name in field_names:
+                collected_values.extend(AWSReInventSessionSearch._string_values(item.get(field_name)))
+            if collected_values:
+                deduplicated_values = list(dict.fromkeys(collected_values))
+                existing_values = attributes.setdefault(attribute_name, [])
+                for value in deduplicated_values:
+                    if value not in existing_values:
+                        existing_values.append(value)
         return attributes
 
     @classmethod
@@ -212,6 +242,7 @@ class AWSReInventSessionSearch(Component):
                         name = str(
                             speaker.get("name")
                             or speaker.get("fullName")
+                            or speaker.get("displayName")
                             or speaker.get("speakerName")
                             or speaker.get("participantName")
                         )
@@ -230,12 +261,20 @@ class AWSReInventSessionSearch(Component):
             return 0
 
         attributes = self._attribute_map(item)
-        code = str(item.get("code") or item.get("abbreviation") or item.get("sessionID") or "")
-        title = str(item.get("title") or "")
-        abstract = str(item.get("abstract") or "")
+        code = str(
+            item.get("code")
+            or item.get("sessionCode")
+            or item.get("abbreviation")
+            or item.get("sessionId")
+            or item.get("sessionID")
+            or item.get("id")
+            or ""
+        )
+        title = str(item.get("title") or item.get("name") or "")
+        abstract = str(item.get("abstract") or item.get("description") or item.get("summary") or "")
         topic = self._topic(attributes) or ""
         level = " ".join(attributes.get("Level", []))
-        session_type = str(item.get("type") or ", ".join(attributes.get("Type", [])) or "")
+        session_type = str(item.get("type") or item.get("sessionType") or ", ".join(attributes.get("Type", [])) or "")
         speakers = " ".join(self._speakers(item))
         searchable = self._normalize(
             " ".join(
@@ -278,14 +317,22 @@ class AWSReInventSessionSearch(Component):
 
     def _session_details(self, item: dict, match_score: int) -> dict[str, Any]:
         attributes = self._attribute_map(item)
-        code = str(item.get("code") or item.get("abbreviation") or item.get("sessionID") or "")
+        code = str(
+            item.get("code")
+            or item.get("sessionCode")
+            or item.get("abbreviation")
+            or item.get("sessionId")
+            or item.get("sessionID")
+            or item.get("id")
+            or ""
+        )
         return {
-            "id": str(item.get("sessionID") or item.get("id") or code),
+            "id": str(item.get("sessionId") or item.get("sessionID") or item.get("id") or code),
             "code": code,
-            "title": item.get("title"),
-            "abstract": item.get("abstract"),
-            "type": item.get("type") or ", ".join(attributes.get("Type", [])),
-            "level": ", ".join(attributes.get("Level", [])),
+            "title": item.get("title") or item.get("name"),
+            "abstract": item.get("abstract") or item.get("description") or item.get("summary"),
+            "type": item.get("type") or item.get("sessionType") or ", ".join(attributes.get("Type", [])),
+            "level": item.get("level") or item.get("sessionLevel") or ", ".join(attributes.get("Level", [])),
             "topic": self._topic(attributes),
             "speakers": self._speakers(item),
             "attributes": attributes,
