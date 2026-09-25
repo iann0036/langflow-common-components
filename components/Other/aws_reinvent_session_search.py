@@ -214,12 +214,12 @@ class AWSReInventSessionSearch(Component):
 
             if page_matches:
                 matches.extend(page_matches)
+                self._sort_matches(matches)
+                if len(matches) > max_results:
+                    del matches[max_results:]
             if not next_token:
                 break
 
-        self._sort_matches(matches)
-        if len(matches) > max_results:
-            del matches[max_results:]
         return matches, scanned_sessions
 
     @staticmethod
