@@ -226,6 +226,13 @@ class AWSReInventSessionSearch(Component):
         return re.sub(r"\s+", " ", str(value or "").strip()).lower()
 
     @staticmethod
+    def _append_unique_strings(values: list[str], seen_values: set[str], new_values: list[str]) -> None:
+        for string_value in new_values:
+            if string_value not in seen_values:
+                seen_values.add(string_value)
+                values.append(string_value)
+
+    @staticmethod
     def _string_values(value: Any) -> list[str]:
         if value is None:
             return []
@@ -238,19 +245,21 @@ class AWSReInventSessionSearch(Component):
             for key in ("name", "title", "label", "value", "displayName"):
                 nested_value = value.get(key)
                 if nested_value:
-                    for string_value in AWSReInventSessionSearch._string_values(nested_value):
-                        if string_value not in seen_values:
-                            seen_values.add(string_value)
-                            values.append(string_value)
+                    AWSReInventSessionSearch._append_unique_strings(
+                        values,
+                        seen_values,
+                        AWSReInventSessionSearch._string_values(nested_value),
+                    )
             return values
         if isinstance(value, list):
             values: list[str] = []
             seen_values: set[str] = set()
             for item in value:
-                for string_value in AWSReInventSessionSearch._string_values(item):
-                    if string_value not in seen_values:
-                        seen_values.add(string_value)
-                        values.append(string_value)
+                AWSReInventSessionSearch._append_unique_strings(
+                    values,
+                    seen_values,
+                    AWSReInventSessionSearch._string_values(item),
+                )
             return values
         stripped = str(value).strip()
         return [stripped] if stripped else []
