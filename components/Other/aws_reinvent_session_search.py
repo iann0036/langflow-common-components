@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from urllib.parse import quote
 
 import requests
 from lfx.custom.custom_component.component import Component
@@ -79,11 +80,11 @@ class AWSReInventSessionSearch(Component):
     ]
 
     def _catalog_page_url(self) -> str:
-        event_identifier = str(self.event_identifier or "reinvent2026").strip()
+        event_identifier = quote(str(self.event_identifier or "reinvent2026").strip(), safe="")
         return self.CATALOG_PAGE_TEMPLATE.format(event_identifier=event_identifier)
 
     def _sessions_api_url(self) -> str:
-        event_identifier = str(self.event_identifier or "reinvent2026").strip()
+        event_identifier = quote(str(self.event_identifier or "reinvent2026").strip(), safe="")
         return self.SESSIONS_API_TEMPLATE.format(event_identifier=event_identifier)
 
     def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
@@ -182,11 +183,16 @@ class AWSReInventSessionSearch(Component):
             stripped = value.strip()
             return [stripped] if stripped else []
         if isinstance(value, dict):
+            values: list[str] = []
+            seen_values: set[str] = set()
             for key in ("name", "title", "label", "value", "displayName"):
                 nested_value = value.get(key)
                 if nested_value:
-                    return AWSReInventSessionSearch._string_values(nested_value)
-            return []
+                    for string_value in AWSReInventSessionSearch._string_values(nested_value):
+                        if string_value not in seen_values:
+                            seen_values.add(string_value)
+                            values.append(string_value)
+            return values
         if isinstance(value, list):
             values: list[str] = []
             for item in value:
@@ -214,10 +220,11 @@ class AWSReInventSessionSearch(Component):
             for field_name in field_names:
                 collected_values.extend(AWSReInventSessionSearch._string_values(item.get(field_name)))
             if collected_values:
-                deduplicated_values = list(dict.fromkeys(collected_values))
+                seen_values = set(attributes.get(attribute_name, []))
                 existing_values = attributes.setdefault(attribute_name, [])
-                for value in deduplicated_values:
-                    if value not in existing_values:
+                for value in collected_values:
+                    if value not in seen_values:
+                        seen_values.add(value)
                         existing_values.append(value)
         return attributes
 
