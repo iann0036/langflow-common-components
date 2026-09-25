@@ -122,10 +122,19 @@ class AWSReInventSessionSearch(Component):
                 if isinstance(items, list):
                     return list(items), payload.get("nextToken")
             if "sectionList" in payload and payload["sectionList"]:
-                section = payload["sectionList"][0]
-                items = section.get("items", []) or []
-                if isinstance(items, list):
-                    return list(items), section.get("nextToken") or payload.get("nextToken")
+                collected_items: list[dict] = []
+                next_section_token = payload.get("nextToken")
+                for section in payload["sectionList"]:
+                    if not isinstance(section, dict):
+                        continue
+                    items = section.get("items", []) or []
+                    if not isinstance(items, list):
+                        continue
+                    collected_items.extend(items)
+                    if not next_section_token:
+                        next_section_token = section.get("nextToken")
+                if collected_items:
+                    return collected_items, next_section_token
 
         msg = "Unexpected response from the AWS Events API."
         raise ValueError(msg)
@@ -169,12 +178,12 @@ class AWSReInventSessionSearch(Component):
 
             if page_matches:
                 matches.extend(page_matches)
-                self._sort_matches(matches)
-                if len(matches) > max_results:
-                    del matches[max_results:]
             if not next_token:
                 break
 
+        self._sort_matches(matches)
+        if len(matches) > max_results:
+            del matches[max_results:]
         return matches, scanned_sessions
 
     @staticmethod
