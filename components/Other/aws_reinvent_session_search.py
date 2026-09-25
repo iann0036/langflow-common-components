@@ -27,7 +27,7 @@ class AWSReInventSessionSearch(Component):
         "https://registration.awsevents.com/flow/awsevents/{event_identifier}/"
         "eventcatalog/page/eventcatalog"
     )
-    SESSIONS_API_TEMPLATE = "https://events-api.aws/v1/events/{event_identifier}/sessions"
+    SESSIONS_API_TEMPLATE = "https://api.awsevents.com/v1/events/{event_identifier}/sessions"
     USER_AGENT = "langflow-common-components/aws-reinvent-session-search"
     TOPIC_ATTRIBUTES = (
         "Topic",
@@ -186,6 +186,38 @@ class AWSReInventSessionSearch(Component):
     def _sort_matches(matches: list[dict[str, Any]]) -> None:
         matches.sort(key=lambda item: (-item["match_score"], item.get("code") or "", item.get("title") or ""))
 
+    @staticmethod
+    def _session_code(item: dict) -> str:
+        return str(
+            item.get("code")
+            or item.get("sessionCode")
+            or item.get("abbreviation")
+            or item.get("sessionId")
+            or item.get("sessionID")
+            or item.get("id")
+            or ""
+        )
+
+    @classmethod
+    def _session_identifier(cls, item: dict) -> str:
+        return str(item.get("sessionId") or item.get("sessionID") or item.get("id") or cls._session_code(item))
+
+    @staticmethod
+    def _session_title(item: dict) -> str:
+        return str(item.get("title") or item.get("name") or "")
+
+    @staticmethod
+    def _session_abstract(item: dict) -> str:
+        return str(item.get("abstract") or item.get("description") or item.get("summary") or "")
+
+    @staticmethod
+    def _session_type(item: dict, attributes: dict[str, list[str]]) -> str:
+        return str(item.get("type") or item.get("sessionType") or ", ".join(attributes.get("Type", [])) or "")
+
+    @staticmethod
+    def _session_level(item: dict, attributes: dict[str, list[str]]) -> str:
+        return str(item.get("level") or item.get("sessionLevel") or ", ".join(attributes.get("Level", [])) or "")
+
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
         auth_headers = self._auth_headers()
@@ -202,15 +234,7 @@ class AWSReInventSessionSearch(Component):
 
             page_matches: list[dict[str, Any]] = []
             for item in items:
-                session_id = str(
-                    item.get("code")
-                    or item.get("sessionCode")
-                    or item.get("abbreviation")
-                    or item.get("sessionId")
-                    or item.get("sessionID")
-                    or item.get("id")
-                    or ""
-                )
+                session_id = self._session_identifier(item)
                 if session_id and session_id in seen_ids:
                     continue
                 if session_id:
@@ -340,20 +364,12 @@ class AWSReInventSessionSearch(Component):
             return 0
 
         attributes = self._attribute_map(item)
-        code = str(
-            item.get("code")
-            or item.get("sessionCode")
-            or item.get("abbreviation")
-            or item.get("sessionId")
-            or item.get("sessionID")
-            or item.get("id")
-            or ""
-        )
-        title = str(item.get("title") or item.get("name") or "")
-        abstract = str(item.get("abstract") or item.get("description") or item.get("summary") or "")
+        code = self._session_code(item)
+        title = self._session_title(item)
+        abstract = self._session_abstract(item)
         topic = self._topic(attributes) or ""
-        level = " ".join(attributes.get("Level", []))
-        session_type = str(item.get("type") or item.get("sessionType") or ", ".join(attributes.get("Type", [])) or "")
+        level = self._session_level(item, attributes)
+        session_type = self._session_type(item, attributes)
         speakers = " ".join(self._speakers(item))
         searchable = self._normalize(
             " ".join(
@@ -396,22 +412,14 @@ class AWSReInventSessionSearch(Component):
 
     def _session_details(self, item: dict, match_score: int) -> dict[str, Any]:
         attributes = self._attribute_map(item)
-        code = str(
-            item.get("code")
-            or item.get("sessionCode")
-            or item.get("abbreviation")
-            or item.get("sessionId")
-            or item.get("sessionID")
-            or item.get("id")
-            or ""
-        )
+        code = self._session_code(item)
         return {
-            "id": str(item.get("sessionId") or item.get("sessionID") or item.get("id") or code),
+            "id": self._session_identifier(item),
             "code": code,
-            "title": item.get("title") or item.get("name"),
-            "abstract": item.get("abstract") or item.get("description") or item.get("summary"),
-            "type": item.get("type") or item.get("sessionType") or ", ".join(attributes.get("Type", [])),
-            "level": item.get("level") or item.get("sessionLevel") or ", ".join(attributes.get("Level", [])),
+            "title": self._session_title(item),
+            "abstract": self._session_abstract(item),
+            "type": self._session_type(item, attributes),
+            "level": self._session_level(item, attributes),
             "topic": self._topic(attributes),
             "speakers": self._speakers(item),
             "attributes": attributes,
