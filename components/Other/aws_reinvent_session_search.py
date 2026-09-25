@@ -96,12 +96,15 @@ class AWSReInventSessionSearch(Component):
         return str(value or "").strip()
 
     def _auth_token(self) -> str:
-        env_var_name = self._input_value(self.auth_token_env_var) or "AWS_REINVENT_AUTH_TOKEN"
+        env_var_name = self._auth_token_env_var_name()
         auth_token = self._input_value(os.getenv(env_var_name))
         if not auth_token:
             msg = f"AWS re:Invent 2026 requires the auth token environment variable '{env_var_name}' to be set."
             raise ValueError(msg)
         return auth_token
+
+    def _auth_token_env_var_name(self) -> str:
+        return self._input_value(self.auth_token_env_var) or "AWS_REINVENT_AUTH_TOKEN"
 
     def _auth_headers(self) -> dict[str, str]:
         auth_token = self._auth_token()
@@ -133,7 +136,8 @@ class AWSReInventSessionSearch(Component):
             timeout=60,
         )
         if response.status_code in (401, 403):
-            msg = "AWS re:Invent 2026 authentication failed. Check the configured auth token environment variable."
+            env_var_name = self._auth_token_env_var_name()
+            msg = f"AWS re:Invent 2026 authentication failed. Check the auth token environment variable '{env_var_name}'."
             raise RuntimeError(msg)
         if response.status_code == 404:
             msg = "AWS Events API sessions endpoint was not available for this event."
