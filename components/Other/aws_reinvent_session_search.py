@@ -62,10 +62,10 @@ class AWSReInventSessionSearch(Component):
             advanced=True,
         ),
         StrInput(
-            name="refresh_token_env_var",
-            display_name="Refresh Token Environment Variable",
-            info="Environment variable name that stores the AWS re:Invent 2026 refresh token.",
-            value="AWS_REINVENT_REFRESH_TOKEN",
+            name="auth_token_env_var",
+            display_name="Auth Token Environment Variable",
+            info="Environment variable name that stores the AWS re:Invent 2026 Authorization header value or raw bearer token.",
+            value="AWS_REINVENT_AUTH_TOKEN",
             required=True,
             tool_mode=True,
         ),
@@ -95,18 +95,23 @@ class AWSReInventSessionSearch(Component):
     def _input_value(value: Any) -> str:
         return str(value or "").strip()
 
-    def _refresh_token(self) -> str:
-        env_var_name = self._input_value(self.refresh_token_env_var) or "AWS_REINVENT_REFRESH_TOKEN"
-        refresh_token = self._input_value(os.getenv(env_var_name))
-        if not refresh_token:
-            msg = f"AWS re:Invent 2026 requires the refresh token environment variable '{env_var_name}' to be set."
+    def _auth_token(self) -> str:
+        env_var_name = self._input_value(self.auth_token_env_var) or "AWS_REINVENT_AUTH_TOKEN"
+        auth_token = self._input_value(os.getenv(env_var_name))
+        if not auth_token:
+            msg = f"AWS re:Invent 2026 requires the auth token environment variable '{env_var_name}' to be set."
             raise ValueError(msg)
-        return refresh_token
+        return auth_token
 
     def _auth_headers(self) -> dict[str, str]:
+        auth_token = self._auth_token()
+        if " " in auth_token:
+            return {
+                "Authorization": auth_token,
+            }
         bearer_prefix = "Bearer "
         return {
-            "Authorization": bearer_prefix + self._refresh_token(),
+            "Authorization": bearer_prefix + auth_token,
         }
 
     def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
@@ -128,7 +133,7 @@ class AWSReInventSessionSearch(Component):
             timeout=60,
         )
         if response.status_code in (401, 403):
-            msg = "AWS re:Invent 2026 authentication failed. Check the configured refresh token environment variable."
+            msg = "AWS re:Invent 2026 authentication failed. Check the configured auth token environment variable."
             raise RuntimeError(msg)
         if response.status_code == 404:
             msg = "AWS Events API sessions endpoint was not available for this event."
