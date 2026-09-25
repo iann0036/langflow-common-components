@@ -16,8 +16,8 @@ from lfx.schema.data import Data
 class AWSReInventSessionSearch(Component):
     """Search the authenticated AWS re:Invent 2026 catalog and return structured session matches."""
 
-    display_name = "AWS re:Invent Session Search"
-    description = "Searches the authenticated AWS re:Invent 2026 catalog and returns details for matching sessions."
+    display_name = "AWS re:Invent 2026 Session Search"
+    description = "Searches the authenticated AWS re:Invent 2026 catalog only and returns details for matching sessions."
     documentation: str = "https://docs.aws.amazon.com/events/latest/devguide/rest-api.html"
     icon = "Amazon"
     name = "AWSReInventSessionSearch"
