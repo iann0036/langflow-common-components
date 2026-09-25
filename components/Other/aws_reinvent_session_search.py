@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 from urllib.parse import quote
 
 import requests
 from lfx.custom.custom_component.component import Component
-from lfx.io import IntInput, MessageTextInput, Output, SecretStrInput, StrInput
+from lfx.io import IntInput, MessageTextInput, Output, StrInput
 from lfx.schema.data import Data
 
 
@@ -60,19 +61,12 @@ class AWSReInventSessionSearch(Component):
             value=100,
             advanced=True,
         ),
-        SecretStrInput(
-            name="authorization_token",
-            display_name="Authorization Token",
-            info="Authentication token for AWS re:Invent 2026. Provide a full Authorization header value or a raw bearer token.",
-            required=False,
-            tool_mode=True,
-        ),
-        SecretStrInput(
-            name="session_cookie",
-            display_name="Session Cookie",
-            info="Optional authenticated Cookie header value for AWS re:Invent 2026 requests.",
-            required=False,
-            advanced=True,
+        StrInput(
+            name="refresh_token_env_var",
+            display_name="Refresh Token Environment Variable",
+            info="Environment variable name that stores the AWS re:Invent 2026 refresh token.",
+            value="AWS_REINVENT_REFRESH_TOKEN",
+            required=True,
             tool_mode=True,
         ),
         StrInput(
@@ -101,23 +95,19 @@ class AWSReInventSessionSearch(Component):
     def _input_value(value: Any) -> str:
         return str(value or "").strip()
 
-    def _auth_headers(self) -> dict[str, str]:
-        authorization_token = self._input_value(self.authorization_token)
-        session_cookie = self._input_value(self.session_cookie)
-        if not authorization_token and not session_cookie:
-            msg = "AWS re:Invent 2026 requires authentication. Provide an Authorization Token or Session Cookie."
+    def _refresh_token(self) -> str:
+        env_var_name = self._input_value(self.refresh_token_env_var) or "AWS_REINVENT_REFRESH_TOKEN"
+        refresh_token = self._input_value(os.getenv(env_var_name))
+        if not refresh_token:
+            msg = f"AWS re:Invent 2026 requires the refresh token environment variable '{env_var_name}' to be set."
             raise ValueError(msg)
+        return refresh_token
 
-        headers: dict[str, str] = {}
-        if authorization_token:
-            if " " in authorization_token:
-                headers["Authorization"] = authorization_token
-            else:
-                bearer_prefix = "Bearer "
-                headers["Authorization"] = bearer_prefix + authorization_token
-        if session_cookie:
-            headers["Cookie"] = session_cookie
-        return headers
+    def _auth_headers(self) -> dict[str, str]:
+        bearer_prefix = "Bearer "
+        return {
+            "Authorization": bearer_prefix + self._refresh_token(),
+        }
 
     def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
         headers = {
@@ -138,7 +128,7 @@ class AWSReInventSessionSearch(Component):
             timeout=60,
         )
         if response.status_code in (401, 403):
-            msg = "AWS re:Invent 2026 authentication failed. Check the Authorization Token or Session Cookie."
+            msg = "AWS re:Invent 2026 authentication failed. Check the configured refresh token environment variable."
             raise RuntimeError(msg)
         if response.status_code == 404:
             msg = "AWS Events API sessions endpoint was not available for this event."
