@@ -93,7 +93,7 @@ class AWSReInventSessionSearch(Component):
             "User-Agent": self.USER_AGENT,
         }
         params = {
-            "pageSize": str(size),
+            "pageSize": size,
         }
         if next_token:
             params["nextToken"] = next_token
@@ -195,8 +195,12 @@ class AWSReInventSessionSearch(Component):
             return values
         if isinstance(value, list):
             values: list[str] = []
+            seen_values: set[str] = set()
             for item in value:
-                values.extend(AWSReInventSessionSearch._string_values(item))
+                for string_value in AWSReInventSessionSearch._string_values(item):
+                    if string_value not in seen_values:
+                        seen_values.add(string_value)
+                        values.append(string_value)
             return values
         stripped = str(value).strip()
         return [stripped] if stripped else []
