@@ -117,11 +117,16 @@ class AWSReInventSessionSearch(Component):
             "Authorization": bearer_prefix + auth_token,
         }
 
-    def _fetch_page(self, next_token: str | None, size: int) -> tuple[list[dict], str | None]:
+    def _fetch_page(
+        self,
+        auth_headers: dict[str, str],
+        next_token: str | None,
+        size: int,
+    ) -> tuple[list[dict], str | None]:
         headers = {
             "Accept": "application/json",
             "User-Agent": self.USER_AGENT,
-            **self._auth_headers(),
+            **auth_headers,
         }
         params = {
             "pageSize": size,
@@ -183,6 +188,7 @@ class AWSReInventSessionSearch(Component):
 
     def _search_catalog_sessions(self, query: str, max_results: int) -> tuple[list[dict], int]:
         page_size = max(1, int(self.page_size or 100))
+        auth_headers = self._auth_headers()
 
         matches: list[dict] = []
         seen_ids: set[str] = set()
@@ -190,7 +196,7 @@ class AWSReInventSessionSearch(Component):
         scanned_sessions = 0
 
         while True:
-            items, next_token = self._fetch_page(next_token, page_size)
+            items, next_token = self._fetch_page(auth_headers, next_token, page_size)
             if not items:
                 break
 
