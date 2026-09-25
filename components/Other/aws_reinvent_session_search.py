@@ -125,6 +125,8 @@ class AWSReInventSessionSearch(Component):
     ) -> tuple[list[dict], str | None]:
         headers = {
             "Accept": "application/json",
+            "Origin": "https://registration.awsevents.com",
+            "Referer": self._catalog_page_url(),
             "User-Agent": self.USER_AGENT,
             **auth_headers,
         }
