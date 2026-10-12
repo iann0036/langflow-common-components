@@ -12,6 +12,8 @@ from lfx.custom.custom_component.component import Component
 from lfx.io import IntInput, MessageTextInput, Output, StrInput
 from lfx.schema.data import Data
 
+_AUTH_TOKEN_ENV_VAR = "REINVENT_AUTH_TOKEN"
+
 
 class AWSReInventSessionSearch(Component):
     """Search the authenticated AWS re:Invent 2026 catalog and return structured session matches."""
@@ -62,14 +64,6 @@ class AWSReInventSessionSearch(Component):
             advanced=True,
         ),
         StrInput(
-            name="auth_token_env_var",
-            display_name="Auth Token Environment Variable",
-            info="Environment variable name that stores the AWS re:Invent 2026 Authorization header value or raw bearer token.",
-            value="AWS_REINVENT_AUTH_TOKEN",
-            required=True,
-            tool_mode=True,
-        ),
-        StrInput(
             name="browser_timezone",
             display_name="Browser Timezone",
             info="Legacy setting retained for compatibility; the official AWS Events API does not use it.",
@@ -96,15 +90,11 @@ class AWSReInventSessionSearch(Component):
         return str(value or "").strip()
 
     def _auth_token(self) -> str:
-        env_var_name = self._auth_token_env_var_name()
-        auth_token = self._input_value(os.getenv(env_var_name))
+        auth_token = self._input_value(os.getenv(_AUTH_TOKEN_ENV_VAR))
         if not auth_token:
-            msg = f"AWS re:Invent 2026 requires the auth token environment variable '{env_var_name}' to be set."
+            msg = f"AWS re:Invent 2026 requires the auth token environment variable '{_AUTH_TOKEN_ENV_VAR}' to be set."
             raise ValueError(msg)
         return auth_token
-
-    def _auth_token_env_var_name(self) -> str:
-        return self._input_value(self.auth_token_env_var) or "AWS_REINVENT_AUTH_TOKEN"
 
     def _auth_headers(self) -> dict[str, str]:
         auth_token = self._auth_token()
@@ -143,10 +133,9 @@ class AWSReInventSessionSearch(Component):
             timeout=60,
         )
         if response.status_code in (401, 403):
-            env_var_name = self._auth_token_env_var_name()
             msg = (
                 f"AWS re:Invent 2026 authentication failed. Check that the auth token environment variable "
-                f"'{env_var_name}' is set and contains a valid, unexpired Authorization header value or bearer token."
+                f"'{_AUTH_TOKEN_ENV_VAR}' is set and contains a valid, unexpired Authorization header value or bearer token."
             )
             raise RuntimeError(msg)
         if response.status_code == 404:
